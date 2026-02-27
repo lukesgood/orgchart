@@ -1,0 +1,36 @@
+{
+  "name": "orgchart-pro",
+  "version": "1.0.0",
+  "description": "Professional organizational chart library for business presentations and proposals",
+  "main": "dist/orgchart.min.js",
+  "module": "dist/orgchart.esm.js",
+  "types": "dist/orgchart.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luke/orgchart-pro.git"
+  },
+  "keywords": [
+    "orgchart",
+    "organization",
+    "chart",
+    "hierarchy",
+    "tree",
+    "visualization",
+    "corporate",
+    "startup"
+  ],
+  "author": "Luke",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/luke/orgchart-pro/issues"
+  },
+  "homepage": "https://github.com/luke/orgchart-pro#readme"
+}

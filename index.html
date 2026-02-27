@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OrgChart Pro - 조직도 생성기</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: #fff; padding: 24px 40px; }
+    .header h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .header p { opacity: 0.8; font-size: 14px; }
+    .toolbar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 16px 40px; display: flex; gap: 24px; flex-wrap: wrap; align-items: center; }
+    .toolbar-group { display: flex; align-items: center; gap: 8px; }
+    .toolbar-group label { font-size: 13px; color: #64748b; font-weight: 500; }
+    .toolbar-group select, .toolbar-group button { padding: 8px 16px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; background: #fff; cursor: pointer; transition: all 0.2s; }
+    .toolbar-group select:hover, .toolbar-group button:hover { border-color: #3182ce; }
+    .toolbar-group button { background: #3182ce; color: #fff; border: none; font-weight: 500; }
+    .toolbar-group button:hover { background: #2c5282; }
+    .toolbar-group button.secondary { background: #fff; color: #1a365d; border: 1px solid #e2e8f0; }
+    .toolbar-group button.secondary:hover { background: #f8fafc; border-color: #3182ce; }
+    .main { padding: 40px; }
+    #chart { width: 100%; height: calc(100vh - 220px); min-height: 500px; background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+    .theme-preview { display: flex; gap: 4px; margin-left: 8px; }
+    .theme-dot { width: 12px; height: 12px; border-radius: 50%; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>OrgChart Pro</h1>
+    <p>회사 소개서 및 제안서를 위한 전문 조직도 생성기</p>
+  </div>
+  
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <label>테마</label>
+      <select id="themeSelect">
+        <option value="corporate">Corporate (기업용)</option>
+        <option value="startup">Startup (스타트업)</option>
+        <option value="modern">Modern (모던)</option>
+        <option value="minimal">Minimal (미니멀)</option>
+        <option value="vibrant">Vibrant (비비드)</option>
+      </select>
+    </div>
+    <div class="toolbar-group">
+      <label>레이아웃</label>
+      <select id="layoutSelect">
+        <option value="tree">계층형 (Tree)</option>
+        <option value="radial">원형 (Radial)</option>
+      </select>
+    </div>
+    <div class="toolbar-group">
+      <label>방향</label>
+      <select id="directionSelect">
+        <option value="vertical">수직 (Vertical)</option>
+        <option value="horizontal">수평 (Horizontal)</option>
+      </select>
+    </div>
+    <div class="toolbar-group">
+      <label>연결선</label>
+      <select id="connectorSelect">
+        <option value="curved">곡선 (Curved)</option>
+        <option value="straight">직선 (Straight)</option>
+      </select>
+    </div>
+    <div class="toolbar-group" style="margin-left: auto;">
+      <button class="secondary" id="sampleBtn">샘플 데이터</button>
+      <button id="exportBtn">PNG 내보내기</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div id="chart"></div>
+  </div>
+
+  <script src="orgchart.js"></script>
+  <script>
+    const sampleData = {
+      corporate: [
+        { id: 1, name: '김대표', title: 'CEO / 대표이사', department: '경영총괄' },
+        { id: 2, name: '이기술', title: 'CTO / 기술이사', department: '기술본부', parentId: 1 },
+        { id: 3, name: '박재무', title: 'CFO / 재무이사', department: '경영지원본부', parentId: 1 },
+        { id: 4, name: '최운영', title: 'COO / 운영이사', department: '운영본부', parentId: 1 },
+        { id: 5, name: '정개발', title: '개발팀장', department: '개발팀', parentId: 2 },
+        { id: 6, name: '한인프라', title: '인프라팀장', department: '인프라팀', parentId: 2 },
+        { id: 7, name: '윤회계', title: '재무팀장', department: '재무팀', parentId: 3 },
+        { id: 8, name: '장인사', title: '인사팀장', department: '인사팀', parentId: 3 },
+        { id: 9, name: '임영업', title: '영업팀장', department: '영업팀', parentId: 4 },
+        { id: 10, name: '송마케팅', title: '마케팅팀장', department: '마케팅팀', parentId: 4 }
+      ],
+      startup: [
+        { id: 1, name: 'Alex Kim', title: 'Founder & CEO', department: 'Leadership' },
+        { id: 2, name: 'Sarah Lee', title: 'Co-founder & CTO', department: 'Product', parentId: 1 },
+        { id: 3, name: 'Mike Park', title: 'Head of Growth', department: 'Growth', parentId: 1 },
+        { id: 4, name: 'Emma Choi', title: 'Lead Engineer', department: 'Engineering', parentId: 2 },
+        { id: 5, name: 'David Jung', title: 'Product Designer', department: 'Design', parentId: 2 },
+        { id: 6, name: 'Lisa Han', title: 'Marketing Lead', department: 'Marketing', parentId: 3 },
+        { id: 7, name: 'Tom Yoon', title: 'Sales Lead', department: 'Sales', parentId: 3 }
+      ]
+    };
+
+    let currentSample = 'corporate';
+    let chart = new OrgChart('#chart', {
+      data: sampleData.corporate,
+      nodeWidth: 200,
+      nodeHeight: 100,
+      levelGap: 60,
+      siblingGap: 24,
+      theme: 'corporate',
+      layout: 'tree',
+      direction: 'vertical',
+      connectorStyle: 'curved',
+      onNodeClick: (node) => console.log('Clicked:', node)
+    });
+
+    document.getElementById('themeSelect').addEventListener('change', (e) => {
+      chart.setTheme(e.target.value);
+    });
+
+    document.getElementById('layoutSelect').addEventListener('change', (e) => {
+      chart.setLayout(e.target.value);
+      document.getElementById('directionSelect').disabled = e.target.value === 'radial';
+      document.getElementById('connectorSelect').disabled = e.target.value === 'radial';
+    });
+
+    document.getElementById('directionSelect').addEventListener('change', (e) => {
+      chart.setDirection(e.target.value);
+    });
+
+    document.getElementById('connectorSelect').addEventListener('change', (e) => {
+      chart.setConnectorStyle(e.target.value);
+    });
+
+    document.getElementById('sampleBtn').addEventListener('click', () => {
+      currentSample = currentSample === 'corporate' ? 'startup' : 'corporate';
+      chart.updateData(sampleData[currentSample]);
+      document.getElementById('themeSelect').value = currentSample;
+      chart.setTheme(currentSample);
+    });
+
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      chart.exportPNG('orgchart.png');
+    });
+  </script>
+</body>
+</html>
