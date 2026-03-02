@@ -47,6 +47,9 @@
       <select id="layoutSelect">
         <option value="tree">계층형 (Tree)</option>
         <option value="radial">원형 (Radial)</option>
+        <option value="donut">도넛 (Donut)</option>
+        <option value="galaxy">갤럭시 (Galaxy)</option>
+        <option value="bracket">브라켓 (Bracket)</option>
       </select>
     </div>
     <div class="toolbar-group">
@@ -54,6 +57,13 @@
       <select id="directionSelect">
         <option value="vertical">수직 (Vertical)</option>
         <option value="horizontal">수평 (Horizontal)</option>
+      </select>
+    </div>
+    <div class="toolbar-group">
+      <label>표시</label>
+      <select id="displaySelect">
+        <option value="person">인명 중심</option>
+        <option value="department">조직 중심</option>
       </select>
     </div>
     <div class="toolbar-group">
@@ -119,8 +129,9 @@
 
     document.getElementById('layoutSelect').addEventListener('change', (e) => {
       chart.setLayout(e.target.value);
-      document.getElementById('directionSelect').disabled = e.target.value === 'radial';
-      document.getElementById('connectorSelect').disabled = e.target.value === 'radial';
+      const isCircular = ['radial', 'galaxy', 'donut'].includes(e.target.value);
+      document.getElementById('directionSelect').disabled = isCircular;
+      document.getElementById('connectorSelect').disabled = isCircular || e.target.value === 'bracket';
     });
 
     document.getElementById('directionSelect').addEventListener('change', (e) => {
@@ -129,6 +140,10 @@
 
     document.getElementById('connectorSelect').addEventListener('change', (e) => {
       chart.setConnectorStyle(e.target.value);
+    });
+
+    document.getElementById('displaySelect').addEventListener('change', (e) => {
+      chart.setDisplayMode(e.target.value);
     });
 
     document.getElementById('sampleBtn').addEventListener('click', () => {

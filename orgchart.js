@@ -10,6 +10,7 @@ class OrgChart {
     this.theme = options.theme || 'corporate';
     this.direction = options.direction || 'vertical';
     this.connectorStyle = options.connectorStyle || 'curved';
+    this.displayMode = options.displayMode || 'person';
     this.onNodeClick = options.onNodeClick || null;
     this.themes = this.getThemes();
     this.render();
@@ -90,16 +91,22 @@ class OrgChart {
     if (!root) return;
 
     const tree = this.buildTree(root.id);
-    let positions = this.layout === 'radial' 
-      ? this.calculateRadialPositions(tree)
-      : this.calculatePositions(tree);
+    let positions;
+    
+    switch (this.layout) {
+      case 'radial': positions = this.calculateRadialPositions(tree); break;
+      case 'galaxy': positions = this.calculateGalaxyPositions(tree); break;
+      case 'bracket': positions = this.calculateBracketPositions(tree); break;
+      case 'donut': positions = this.calculateDonutPositions(tree); break;
+      default: positions = this.calculatePositions(tree);
+    }
     
     positions = this.fitToContainer(positions);
     
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0';
     
-    if (this.layout === 'radial') this.drawRadialBackground(svg, positions);
+    if (['radial', 'galaxy', 'donut'].includes(this.layout)) this.drawRadialBackground(svg, positions);
     this.drawConnections(svg, positions);
     this.container.appendChild(svg);
     this.drawNodes(positions);
@@ -157,32 +164,288 @@ class OrgChart {
     const centerX = this.container.offsetWidth / 2;
     const centerY = this.container.offsetHeight / 2;
     
-    const getNodesAtLevel = (node, level, targetLevel) => {
-      if (level === targetLevel) return [node];
-      return node.children.flatMap(child => getNodesAtLevel(child, level + 1, targetLevel));
+    const assignAngles = (node, startAngle, endAngle, level) => {
+      const angle = (startAngle + endAngle) / 2;
+      const radius = level * (this.levelGap + this.nodeWidth);
+      
+      positions.push({
+        ...node,
+        x: centerX + radius * Math.cos(angle) - this.nodeWidth / 2,
+        y: centerY + radius * Math.sin(angle) - this.nodeWidth / 2,
+        level, angle, radius,
+        isCenter: level === 0
+      });
+      
+      if (node.children.length > 0) {
+        const angleRange = endAngle - startAngle;
+        const leafCounts = node.children.map(c => this.countLeaves(c));
+        const totalLeaves = leafCounts.reduce((a, b) => a + b, 0);
+        
+        let currentAngle = startAngle;
+        node.children.forEach((child, i) => {
+          const childAngleRange = (leafCounts[i] / totalLeaves) * angleRange;
+          assignAngles(child, currentAngle, currentAngle + childAngleRange, level + 1);
+          currentAngle += childAngleRange;
+        });
+      }
     };
     
-    const maxLevel = this.getMaxLevel(tree, 0);
-    positions.push({ ...tree, x: centerX - this.nodeWidth / 2, y: centerY - this.nodeHeight / 2, level: 0, isCenter: true });
+    positions.push({
+      ...tree,
+      x: centerX - this.nodeWidth / 2,
+      y: centerY - this.nodeWidth / 2,
+      level: 0, angle: 0, radius: 0, isCenter: true
+    });
     
-    for (let level = 1; level <= maxLevel; level++) {
-      const nodesAtLevel = getNodesAtLevel(tree, 0, level);
-      const radius = level * (this.levelGap + this.nodeHeight);
-      const angleStep = (Math.PI * 2) / nodesAtLevel.length;
+    if (tree.children.length > 0) {
+      const leafCounts = tree.children.map(c => this.countLeaves(c));
+      const totalLeaves = leafCounts.reduce((a, b) => a + b, 0);
       
-      nodesAtLevel.forEach((node, i) => {
-        const angle = i * angleStep - Math.PI / 2;
-        positions.push({
-          ...node,
-          x: centerX + radius * Math.cos(angle) - this.nodeWidth / 2,
-          y: centerY + radius * Math.sin(angle) - this.nodeHeight / 2,
-          level, angle, radius
-        });
+      let currentAngle = -Math.PI / 2;
+      tree.children.forEach((child, i) => {
+        const childAngleRange = (leafCounts[i] / totalLeaves) * Math.PI * 2;
+        assignAngles(child, currentAngle, currentAngle + childAngleRange, 1);
+        currentAngle += childAngleRange;
       });
     }
     
+    this.maxRadialLevel = this.getMaxLevel(tree, 0);
+    this.radialCenter = { x: centerX, y: centerY };
+    return positions;
+  }
+
+  countLeaves(node) {
+    if (node.children.length === 0) return 1;
+    return node.children.reduce((sum, child) => sum + this.countLeaves(child), 0);
+  }
+
+  calculateGalaxyPositions(tree) {
+    const positions = [];
+    const centerX = this.container.offsetWidth / 2;
+    const centerY = this.container.offsetHeight / 2;
+    
+    positions.push({
+      ...tree, x: centerX - this.nodeWidth / 2, y: centerY - this.nodeWidth / 2,
+      level: 0, isCenter: true
+    });
+    
+    const allChildren = this.flattenChildren(tree, 1);
+    const total = allChildren.length;
+    
+    allChildren.forEach((item, i) => {
+      const angle = (i / total) * Math.PI * 2 - Math.PI / 2;
+      const baseRadius = (this.levelGap + this.nodeWidth) * 1.5;
+      const radius = baseRadius + (item.level - 1) * this.nodeWidth * 0.3;
+      const wobble = Math.sin(i * 2.5) * 20;
+      
+      positions.push({
+        ...item.node,
+        x: centerX + (radius + wobble) * Math.cos(angle) - this.nodeWidth / 2,
+        y: centerY + (radius + wobble) * Math.sin(angle) - this.nodeWidth / 2,
+        level: item.level, angle, radius
+      });
+    });
+    
+    this.maxRadialLevel = this.getMaxLevel(tree, 0);
+    this.radialCenter = { x: centerX, y: centerY };
+    return positions;
+  }
+
+  flattenChildren(node, level) {
+    let result = [];
+    node.children.forEach(child => {
+      result.push({ node: child, level });
+      result = result.concat(this.flattenChildren(child, level + 1));
+    });
+    return result;
+  }
+
+  calculateBracketPositions(tree) {
+    const positions = [];
+    const centerX = this.container.offsetWidth / 2;
+    const centerY = this.container.offsetHeight / 2;
+    const isVertical = this.direction === 'vertical';
+    
+    // 루트를 중앙에 배치
+    positions.push({ ...tree, x: centerX - this.nodeWidth / 2, y: centerY - this.nodeHeight / 2, level: 0, bracketDir: 0 });
+    
+    if (tree.children.length === 0) return positions;
+    
+    // 자식들을 양쪽으로 분배
+    const half = Math.ceil(tree.children.length / 2);
+    const firstHalf = tree.children.slice(0, half);
+    const secondHalf = tree.children.slice(half);
+    
+    const placeSubtree = (nodes, direction) => {
+      if (nodes.length === 0) return;
+      
+      const totalSize = nodes.reduce((sum, n) => sum + this.getBracketSubtreeSize(n, isVertical) + this.siblingGap, -this.siblingGap);
+      
+      let current = isVertical 
+        ? centerY - totalSize / 2
+        : centerX - totalSize / 2;
+      
+      nodes.forEach(node => {
+        const subtreeSize = this.getBracketSubtreeSize(node, isVertical);
+        const offset = current + subtreeSize / 2;
+        
+        let nodeX, nodeY;
+        if (isVertical) {
+          nodeX = centerX + direction * (this.nodeWidth / 2 + this.levelGap + this.nodeWidth / 2);
+          nodeY = offset - this.nodeHeight / 2;
+        } else {
+          nodeX = offset - this.nodeWidth / 2;
+          nodeY = centerY + direction * (this.nodeHeight / 2 + this.levelGap + this.nodeHeight / 2);
+        }
+        
+        positions.push({ ...node, x: nodeX, y: nodeY, level: 1, bracketDir: direction });
+        
+        if (node.children && node.children.length > 0) {
+          this.placeBracketChildren(node, nodeX, nodeY, direction, positions, 2, isVertical);
+        }
+        
+        current += subtreeSize + this.siblingGap;
+      });
+    };
+    
+    placeSubtree(firstHalf, -1);
+    placeSubtree(secondHalf, 1);
+    
+    return positions;
+  }
+
+  placeBracketChildren(parent, parentX, parentY, direction, positions, level, isVertical) {
+    const children = parent.children;
+    if (children.length === 0) return;
+    
+    const totalSize = children.reduce((sum, n) => sum + this.getBracketSubtreeSize(n, isVertical) + this.siblingGap, -this.siblingGap);
+    
+    let current = isVertical
+      ? parentY + this.nodeHeight / 2 - totalSize / 2
+      : parentX + this.nodeWidth / 2 - totalSize / 2;
+    
+    children.forEach(child => {
+      const subtreeSize = this.getBracketSubtreeSize(child, isVertical);
+      const offset = current + subtreeSize / 2;
+      
+      let childX, childY;
+      if (isVertical) {
+        childX = parentX + direction * (this.nodeWidth + this.levelGap);
+        childY = offset - this.nodeHeight / 2;
+      } else {
+        childX = offset - this.nodeWidth / 2;
+        childY = parentY + direction * (this.nodeHeight + this.levelGap);
+      }
+      
+      positions.push({ ...child, x: childX, y: childY, level, bracketDir: direction });
+      
+      if (child.children.length > 0) {
+        this.placeBracketChildren(child, childX, childY, direction, positions, level + 1, isVertical);
+      }
+      
+      current += subtreeSize + this.siblingGap;
+    });
+  }
+
+  getBracketSubtreeSize(node, isVertical) {
+    const nodeSize = isVertical ? this.nodeHeight : this.nodeWidth;
+    if (node.children.length === 0) return nodeSize;
+    const childrenSize = node.children.reduce((sum, child) => sum + this.getBracketSubtreeSize(child, isVertical) + this.siblingGap, -this.siblingGap);
+    return Math.max(nodeSize, childrenSize);
+  }
+
+  calculateDonutPositions(tree) {
+    const positions = [];
+    const centerX = this.container.offsetWidth / 2;
+    const centerY = this.container.offsetHeight / 2;
+    const maxLevel = this.getMaxLevel(tree, 0);
+    
+    // 각 노드의 리프 수 계산
+    const leafCounts = new Map();
+    const countLeaves = (node) => {
+      if (node.children.length === 0) {
+        leafCounts.set(node.id, 1);
+        return 1;
+      }
+      const count = node.children.reduce((sum, child) => sum + countLeaves(child), 0);
+      leafCounts.set(node.id, count);
+      return count;
+    };
+    const totalLeaves = countLeaves(tree);
+    
+    // 링 두께 설정
+    const ringWidth = 50;
+    const ringGap = 8;
+    const innerRadius = 60;
+    
+    // 중앙 원
+    positions.push({
+      ...tree,
+      x: centerX, y: centerY,
+      level: 0, isCenter: true,
+      isDonutSegment: true,
+      innerRadius: 0, outerRadius: innerRadius,
+      arcStart: 0, arcEnd: Math.PI * 2
+    });
+    
+    // 레벨별로 호 세그먼트 배치
+    const placeLevel = (nodes, level, parentAngles) => {
+      const r1 = innerRadius + (level - 1) * (ringWidth + ringGap);
+      const r2 = r1 + ringWidth;
+      
+      nodes.forEach(node => {
+        const parentAngle = parentAngles.get(node.parentId);
+        const parentLeaves = leafCounts.get(node.parentId);
+        const nodeLeaves = leafCounts.get(node.id);
+        
+        // 부모 각도 범위 내에서 비율에 따라 배치
+        const siblings = nodes.filter(n => n.parentId === node.parentId);
+        const siblingIndex = siblings.indexOf(node);
+        const prevSiblingsLeaves = siblings.slice(0, siblingIndex).reduce((sum, s) => sum + leafCounts.get(s.id), 0);
+        
+        const parentRange = parentAngle.end - parentAngle.start;
+        const startRatio = prevSiblingsLeaves / parentLeaves;
+        const endRatio = (prevSiblingsLeaves + nodeLeaves) / parentLeaves;
+        
+        const arcStart = parentAngle.start + parentRange * startRatio;
+        const arcEnd = parentAngle.start + parentRange * endRatio;
+        
+        positions.push({
+          ...node,
+          x: centerX, y: centerY,
+          level,
+          isDonutSegment: true,
+          innerRadius: r1, outerRadius: r2,
+          arcStart, arcEnd
+        });
+        
+        parentAngles.set(node.id, { start: arcStart, end: arcEnd });
+      });
+    };
+    
+    // 레벨별 노드 수집
+    const levelNodes = [];
+    const collectByLevel = (node, level) => {
+      if (!levelNodes[level]) levelNodes[level] = [];
+      if (level > 0) levelNodes[level].push(node);
+      node.children.forEach(child => collectByLevel(child, level + 1));
+    };
+    collectByLevel(tree, 0);
+    
+    const parentAngles = new Map();
+    parentAngles.set(tree.id, { start: -Math.PI / 2, end: Math.PI * 1.5 });
+    
+    levelNodes.forEach((nodes, level) => {
+      if (level > 0 && nodes.length > 0) {
+        placeLevel(nodes, level, parentAngles);
+      }
+    });
+    
     this.maxRadialLevel = maxLevel;
     this.radialCenter = { x: centerX, y: centerY };
+    this.donutRingWidth = ringWidth;
+    this.donutInnerRadius = innerRadius;
+    
     return positions;
   }
 
@@ -219,24 +482,136 @@ class OrgChart {
       this.radialCenter.y = this.radialCenter.y * this.scale + offsetY;
     }
     
+    // 도넛 레이아웃은 스케일만 적용
+    if (this.layout === 'donut') {
+      return positions.map(p => ({
+        ...p,
+        innerRadius: (p.innerRadius || 0) * this.scale,
+        outerRadius: (p.outerRadius || 0) * this.scale
+      }));
+    }
+    
     return positions.map(p => ({ ...p, x: p.x * this.scale + offsetX, y: p.y * this.scale + offsetY }));
+  }
+
+  drawDonutSegments(svg, positions) {
+    const t = this.themes[this.theme];
+    const s = this.scale || 1;
+    const centerX = this.container.offsetWidth / 2;
+    const centerY = this.container.offsetHeight / 2;
+    
+    const levelColors = [
+      t.gradient,
+      [t.accent, t.secondary],
+      ['#10b981', '#059669'],
+      ['#f59e0b', '#d97706'],
+      ['#ec4899', '#db2777']
+    ];
+    
+    positions.forEach(node => {
+      if (!node.isDonutSegment) return;
+      
+      const colors = levelColors[node.level % levelColors.length];
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      
+      if (node.isCenter) {
+        // 중앙 원
+        path.setAttribute('d', this.describeArc(centerX, centerY, 0, node.outerRadius, 0, Math.PI * 2));
+        const grad = document.createElementNS('http://www.w3.org/2000/svg', 'radialGradient');
+        grad.setAttribute('id', `grad-${node.id}`);
+        grad.innerHTML = `<stop offset="0%" stop-color="${colors[0]}"/><stop offset="100%" stop-color="${colors[1]}"/>`;
+        svg.querySelector('defs').appendChild(grad);
+        path.setAttribute('fill', `url(#grad-${node.id})`);
+      } else {
+        // 호 세그먼트
+        const gap = 0.01; // 세그먼트 간 간격
+        const d = this.describeArc(centerX, centerY, node.innerRadius, node.outerRadius, node.arcStart + gap, node.arcEnd - gap);
+        path.setAttribute('d', d);
+        path.setAttribute('fill', colors[0]);
+        path.setAttribute('opacity', 0.8 - (node.level * 0.1));
+      }
+      
+      path.setAttribute('stroke', '#fff');
+      path.setAttribute('stroke-width', '2');
+      path.style.cursor = 'pointer';
+      path.style.transition = 'opacity 0.2s';
+      
+      path.onmouseenter = () => path.setAttribute('opacity', '1');
+      path.onmouseleave = () => path.setAttribute('opacity', node.isCenter ? '1' : 0.8 - (node.level * 0.1));
+      if (this.onNodeClick) path.onclick = () => this.onNodeClick(node);
+      
+      svg.appendChild(path);
+      
+      // 텍스트 위치: 세그먼트 중앙
+      let textX, textY;
+      if (node.isCenter) {
+        textX = centerX;
+        textY = centerY;
+      } else {
+        const midAngle = (node.arcStart + node.arcEnd) / 2;
+        const midRadius = (node.innerRadius + node.outerRadius) / 2;
+        textX = centerX + midRadius * Math.cos(midAngle);
+        textY = centerY + midRadius * Math.sin(midAngle);
+      }
+      
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', textX);
+      text.setAttribute('y', node.isCenter ? textY - 8 * s : textY);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('dominant-baseline', 'middle');
+      text.setAttribute('fill', '#fff');
+      text.setAttribute('font-size', node.isCenter ? 14 * s : 10 * s);
+      text.setAttribute('font-weight', '600');
+      text.setAttribute('pointer-events', 'none');
+      text.textContent = this.displayMode === 'department' ? (node.department || node.name) : node.name;
+      svg.appendChild(text);
+      
+      if (node.isCenter && node.title) {
+        const subText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        subText.setAttribute('x', textX);
+        subText.setAttribute('y', textY + 10 * s);
+        subText.setAttribute('text-anchor', 'middle');
+        subText.setAttribute('dominant-baseline', 'middle');
+        subText.setAttribute('fill', 'rgba(255,255,255,0.8)');
+        subText.setAttribute('font-size', 11 * s);
+        subText.setAttribute('pointer-events', 'none');
+        subText.textContent = node.title;
+        svg.appendChild(subText);
+      }
+    });
+  }
+
+  describeArc(cx, cy, innerRadius, outerRadius, startAngle, endAngle) {
+    const start1 = { x: cx + outerRadius * Math.cos(startAngle), y: cy + outerRadius * Math.sin(startAngle) };
+    const end1 = { x: cx + outerRadius * Math.cos(endAngle), y: cy + outerRadius * Math.sin(endAngle) };
+    const start2 = { x: cx + innerRadius * Math.cos(endAngle), y: cy + innerRadius * Math.sin(endAngle) };
+    const end2 = { x: cx + innerRadius * Math.cos(startAngle), y: cy + innerRadius * Math.sin(startAngle) };
+    
+    const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+    
+    if (innerRadius === 0) {
+      // 원 (중앙)
+      return `M ${cx} ${cy} m ${-outerRadius} 0 a ${outerRadius} ${outerRadius} 0 1 0 ${outerRadius * 2} 0 a ${outerRadius} ${outerRadius} 0 1 0 ${-outerRadius * 2} 0`;
+    }
+    
+    return `M ${start1.x} ${start1.y} A ${outerRadius} ${outerRadius} 0 ${largeArc} 1 ${end1.x} ${end1.y} L ${start2.x} ${start2.y} A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${end2.x} ${end2.y} Z`;
   }
 
   drawRadialBackground(svg, positions) {
     const t = this.themes[this.theme];
-    if (!this.maxRadialLevel) return;
+    if (!this.maxRadialLevel || this.layout === 'donut') return;
     
+    // 배경 그라데이션 원
     for (let level = this.maxRadialLevel; level >= 1; level--) {
-      const radius = level * (this.levelGap + this.nodeHeight) * this.scale;
+      const radius = level * (this.levelGap + this.nodeWidth) * this.scale;
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circle.setAttribute('cx', this.radialCenter.x);
       circle.setAttribute('cy', this.radialCenter.y);
       circle.setAttribute('r', radius);
-      circle.setAttribute('stroke', t.border);
+      circle.setAttribute('stroke', t.accent);
       circle.setAttribute('stroke-width', '1');
-      circle.setAttribute('stroke-dasharray', '4,4');
       circle.setAttribute('fill', 'none');
-      circle.setAttribute('opacity', '0.5');
+      circle.setAttribute('opacity', 0.15 - (level * 0.02));
       svg.appendChild(circle);
     }
   }
@@ -255,18 +630,62 @@ class OrgChart {
     defs.appendChild(gradient);
     svg.appendChild(defs);
 
+    // 도넛 레이아웃은 연결선 없이 세그먼트로 표현
+    if (this.layout === 'donut') {
+      this.drawDonutSegments(svg, positions);
+      return;
+    }
+
+    // 중복 라인 방지를 위한 Set
+    const drawnLines = new Set();
+    
     positions.forEach(node => {
       if (!node.parentId) return;
       const parent = positions.find(p => p.id === node.parentId);
       if (!parent) return;
+      
+      const lineKey = `${parent.id}-${node.id}`;
+      if (drawnLines.has(lineKey)) return;
+      drawnLines.add(lineKey);
 
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       let d;
 
-      if (this.layout === 'radial') {
+      if (this.layout === 'radial' || this.layout === 'galaxy') {
         const x1 = parent.x + nw / 2, y1 = parent.y + nw / 2;
         const x2 = node.x + nw / 2, y2 = node.y + nw / 2;
-        d = `M ${x1} ${y1} L ${x2} ${y2}`;
+        const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+        const cx = midX + (y2 - y1) * 0.15, cy = midY - (x2 - x1) * 0.15;
+        d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+      } else if (this.layout === 'bracket') {
+        const dir = node.bracketDir;
+        
+        if (this.direction === 'vertical') {
+          // 수직 브라켓: 좌우로 뻗어나감
+          const x1 = parent.x + nw / 2;
+          const y1 = parent.y + nh / 2;
+          const x2 = node.x + nw / 2;
+          const y2 = node.y + nh / 2;
+          
+          // 부모에서 수평으로 나가서 자식으로 연결
+          const midX = dir < 0 
+            ? Math.min(parent.x, node.x + nw) - this.levelGap * s / 2
+            : Math.max(parent.x + nw, node.x) + this.levelGap * s / 2;
+          
+          d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+        } else {
+          // 수평 브라켓: 상하로 뻗어나감
+          const x1 = parent.x + nw / 2;
+          const y1 = parent.y + nh / 2;
+          const x2 = node.x + nw / 2;
+          const y2 = node.y + nh / 2;
+          
+          const midY = dir < 0
+            ? Math.min(parent.y, node.y + nh) - this.levelGap * s / 2
+            : Math.max(parent.y + nh, node.y) + this.levelGap * s / 2;
+          
+          d = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+        }
       } else if (this.direction === 'horizontal') {
         const x1 = parent.x + nw, y1 = parent.y + nh / 2;
         const x2 = node.x, y2 = node.y + nh / 2;
@@ -284,9 +703,11 @@ class OrgChart {
       }
 
       line.setAttribute('d', d);
-      line.setAttribute('stroke', this.layout === 'radial' ? t.border : 'url(#lineGradient)');
-      line.setAttribute('stroke-width', this.layout === 'radial' ? '1' : '2');
+      const isCircular = ['radial', 'galaxy'].includes(this.layout);
+      line.setAttribute('stroke', isCircular ? t.accent : 'url(#lineGradient)');
+      line.setAttribute('stroke-width', isCircular ? '1.5' : '2');
       line.setAttribute('fill', 'none');
+      line.setAttribute('opacity', isCircular ? '0.3' : '1');
       svg.appendChild(line);
     });
   }
@@ -297,6 +718,9 @@ class OrgChart {
     const nw = this.nodeWidth * s;
     const nh = this.nodeHeight * s;
 
+    // 도넛 레이아웃은 SVG로 그려짐
+    if (this.layout === 'donut') return;
+
     positions.forEach(node => {
       const div = document.createElement('div');
       div.className = 'org-node';
@@ -304,7 +728,9 @@ class OrgChart {
         box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;align-items:center;
         z-index:1;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;`;
 
-      if (this.layout === 'radial') {
+      const isCircular = ['radial', 'galaxy'].includes(this.layout);
+      
+      if (isCircular) {
         div.style.width = div.style.height = nw + 'px';
         div.style.top = (node.y + nh / 2 - nw / 2) + 'px';
         div.style.borderRadius = '50%';
@@ -312,11 +738,22 @@ class OrgChart {
         if (node.isCenter) {
           div.style.background = `linear-gradient(135deg, ${t.gradient[0]}, ${t.gradient[1]})`;
           div.style.color = '#fff';
-          div.style.boxShadow = t.shadow;
+          div.style.boxShadow = `0 8px 32px ${t.gradient[0]}40`;
+          div.style.width = div.style.height = (nw * 1.3) + 'px';
+          div.style.left = (node.x - nw * 0.15) + 'px';
+          div.style.top = (node.y + nh / 2 - nw * 0.65) + 'px';
         } else {
-          div.style.background = t.background;
-          div.style.border = `${2 * s}px solid ${t.accent}`;
-          div.style.boxShadow = t.shadow;
+          const levelColors = [
+            [t.gradient[0], t.gradient[1]],
+            [t.accent, t.secondary],
+            ['#10b981', '#059669'],
+            ['#f59e0b', '#d97706'],
+            ['#ec4899', '#db2777']
+          ];
+          const colors = levelColors[(node.level - 1) % levelColors.length];
+          div.style.background = `linear-gradient(135deg, ${colors[0]}15, ${colors[1]}15)`;
+          div.style.border = `${2 * s}px solid ${colors[0]}`;
+          div.style.boxShadow = `0 4px 16px ${colors[0]}20`;
         }
       } else {
         div.style.borderRadius = t.nodeRadius;
@@ -346,7 +783,7 @@ class OrgChart {
     const wrapper = document.createElement('div');
     wrapper.style.cssText = `padding:${12 * s}px;text-align:center;width:100%;box-sizing:border-box;`;
 
-    if (node.image) {
+    if (node.image && this.displayMode === 'person') {
       const img = document.createElement('img');
       img.src = node.image;
       img.style.cssText = `width:${40 * s}px;height:${40 * s}px;border-radius:50%;object-fit:cover;
@@ -354,29 +791,40 @@ class OrgChart {
       wrapper.appendChild(img);
     }
 
-    const name = document.createElement('div');
-    name.textContent = node.name;
-    name.style.cssText = `font-weight:600;font-size:${(this.layout === 'radial' ? 11 : 14) * s}px;
-      margin-bottom:${2 * s}px;color:${isLight ? '#fff' : t.text};line-height:1.3;`;
-    wrapper.appendChild(name);
+    const primary = document.createElement('div');
+    const secondary = document.createElement('div');
+    
+    if (this.displayMode === 'department') {
+      primary.textContent = node.department || node.name;
+      secondary.textContent = node.name;
+    } else {
+      primary.textContent = node.name;
+      secondary.textContent = node.title || '';
+    }
+    
+    primary.style.cssText = `font-weight:600;font-size:${(this.layout === 'radial' ? 13 : 14) * s}px;
+      margin-bottom:${2 * s}px;color:${isLight ? '#fff' : t.text};line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
+    wrapper.appendChild(primary);
 
-    if (node.title) {
-      const title = document.createElement('div');
-      title.textContent = node.title;
-      title.style.cssText = `font-size:${(this.layout === 'radial' ? 9 : 12) * s}px;
-        color:${isLight ? 'rgba(255,255,255,0.85)' : t.textLight};line-height:1.3;`;
-      wrapper.appendChild(title);
+    if (secondary.textContent && secondary.textContent !== primary.textContent) {
+      secondary.style.cssText = `font-size:${(this.layout === 'radial' ? 11 : 12) * s}px;
+        color:${isLight ? 'rgba(255,255,255,0.85)' : t.textLight};line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
+      wrapper.appendChild(secondary);
     }
 
-    if (node.department && this.layout !== 'radial') {
+    if (this.displayMode === 'person' && node.department && this.layout !== 'radial') {
       const dept = document.createElement('div');
       dept.textContent = node.department;
-      dept.style.cssText = `font-size:${10 * s}px;color:${t.accent};margin-top:${4 * s}px;
-        font-weight:500;`;
+      dept.style.cssText = `font-size:${10 * s}px;color:${t.accent};margin-top:${4 * s}px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`;
       wrapper.appendChild(dept);
     }
 
     return wrapper;
+  }
+
+  setDisplayMode(mode) {
+    this.displayMode = mode;
+    this.render();
   }
 
   setTheme(theme) {
