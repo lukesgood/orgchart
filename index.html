@@ -3,85 +3,346 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OrgChart Pro - 조직도 생성기</title>
+  <title>OrgChart Pro — 조직도 생성기</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; min-height: 100vh; }
-    .header { background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: #fff; padding: 24px 40px; }
-    .header h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
-    .header p { opacity: 0.8; font-size: 14px; }
-    .toolbar { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 16px 40px; display: flex; gap: 24px; flex-wrap: wrap; align-items: center; }
-    .toolbar-group { display: flex; align-items: center; gap: 8px; }
-    .toolbar-group label { font-size: 13px; color: #64748b; font-weight: 500; }
-    .toolbar-group select, .toolbar-group button { padding: 8px 16px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; background: #fff; cursor: pointer; transition: all 0.2s; }
-    .toolbar-group select:hover, .toolbar-group button:hover { border-color: #3182ce; }
-    .toolbar-group button { background: #3182ce; color: #fff; border: none; font-weight: 500; }
-    .toolbar-group button:hover { background: #2c5282; }
-    .toolbar-group button.secondary { background: #fff; color: #1a365d; border: 1px solid #e2e8f0; }
-    .toolbar-group button.secondary:hover { background: #f8fafc; border-color: #3182ce; }
-    .main { padding: 40px; }
-    #chart { width: 100%; height: calc(100vh - 220px); min-height: 500px; background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
-    .theme-preview { display: flex; gap: 4px; margin-left: 8px; }
-    .theme-dot { width: 12px; height: 12px; border-radius: 50%; }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg:            #0d0b10;
+      --surface:       #131118;
+      --elevated:      #1b1825;
+      --border:        rgba(255, 255, 255, 0.07);
+      --border-hover:  rgba(255, 255, 255, 0.13);
+      --text:          #f0ece3;
+      --text-muted:    #7a7485;
+      --text-dim:      #4a4455;
+      --accent:        #e9a620;
+      --accent-dim:    rgba(233, 166, 32, 0.11);
+      --accent-ring:   rgba(233, 166, 32, 0.2);
+      --accent-bright: #f2b83a;
+    }
+
+    html, body { height: 100%; overflow: hidden; }
+
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Grain texture overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 999;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='250' height='250'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='250' height='250' filter='url(%23g)'/%3E%3C/svg%3E");
+    }
+
+    /* ── HEADER ── */
+    .header {
+      height: 54px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      padding: 0 28px;
+      gap: 18px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(to bottom, rgba(255,255,255,0.02) 0%, transparent 100%);
+      animation: slideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      flex-shrink: 0;
+    }
+
+    .brand-name {
+      font-family: 'Cormorant Garamond', Georgia, serif;
+      font-size: 21px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .brand-badge {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent-ring);
+      padding: 3px 7px 2px;
+      border-radius: 3px;
+      line-height: 1.7;
+    }
+
+    .header-sep {
+      width: 1px;
+      height: 22px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .header-tagline {
+      font-size: 12px;
+      color: var(--text-dim);
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── TOOLBAR ── */
+    .toolbar {
+      height: 52px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      padding: 0 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      overflow-x: auto;
+      scrollbar-width: none;
+      animation: slideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+    }
+
+    .toolbar::-webkit-scrollbar { display: none; }
+
+    .ctrl {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 20px;
+      height: 100%;
+      border-right: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .ctrl:first-child { padding-left: 0; }
+
+    .ctrl-label {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    .ctrl-select {
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 400;
+      padding: 5px 26px 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5' viewBox='0 0 9 5'%3E%3Cpath d='M1 1l3.5 3L8 1' stroke='%237a7485' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+    }
+
+    .ctrl-select:hover { border-color: var(--border-hover); }
+
+    .ctrl-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    .ctrl-select option { background: #1b1825; color: var(--text); }
+
+    .ctrl-select:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .ctrl-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-left: 20px;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+      white-space: nowrap;
+      line-height: 1.2;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover {
+      background: var(--elevated);
+      color: var(--text);
+      border-color: var(--border-hover);
+    }
+
+    .btn-accent {
+      background: var(--accent);
+      color: #0d0b10;
+      border: 1px solid transparent;
+      font-weight: 600;
+    }
+
+    .btn-accent:hover { background: var(--accent-bright); }
+    .btn-accent:active { transform: scale(0.97); }
+
+    /* ── WORKSPACE ── */
+    .workspace {
+      flex: 1;
+      padding: 20px 28px 24px;
+      display: flex;
+      overflow: hidden;
+      animation: fadeUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+    }
+
+    #chart {
+      flex: 1;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      position: relative;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.025) inset,
+        0 32px 80px rgba(0,0,0,0.5),
+        0 8px 24px rgba(0,0,0,0.35);
+    }
+
+    /* Dot-grid backdrop — shown before library overrides bg */
+    #chart::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px);
+      background-size: 26px 26px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── ANIMATIONS ── */
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 680px) {
+      .header { padding: 0 16px; }
+      .header-tagline { display: none; }
+      .toolbar { padding: 0 16px; }
+      .ctrl { padding: 0 12px; }
+      .workspace { padding: 12px 16px 16px; }
+    }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>OrgChart Pro</h1>
-    <p>회사 소개서 및 제안서를 위한 전문 조직도 생성기</p>
-  </div>
-  
+
+  <header class="header">
+    <div class="brand">
+      <span class="brand-name">OrgChart</span>
+      <span class="brand-badge">Pro</span>
+    </div>
+    <div class="header-sep"></div>
+    <span class="header-tagline">회사 소개서 및 제안서를 위한 전문 조직도 생성기</span>
+  </header>
+
   <div class="toolbar">
-    <div class="toolbar-group">
-      <label>테마</label>
-      <select id="themeSelect">
-        <option value="corporate">Corporate (기업용)</option>
-        <option value="startup">Startup (스타트업)</option>
-        <option value="modern">Modern (모던)</option>
-        <option value="minimal">Minimal (미니멀)</option>
-        <option value="vibrant">Vibrant (비비드)</option>
+    <div class="ctrl">
+      <span class="ctrl-label">테마</span>
+      <select class="ctrl-select" id="themeSelect">
+        <option value="corporate">Corporate</option>
+        <option value="startup">Startup</option>
+        <option value="modern">Modern</option>
+        <option value="minimal">Minimal</option>
+        <option value="vibrant">Vibrant</option>
       </select>
     </div>
-    <div class="toolbar-group">
-      <label>레이아웃</label>
-      <select id="layoutSelect">
-        <option value="tree">계층형 (Tree)</option>
-        <option value="radial">원형 (Radial)</option>
-        <option value="donut">도넛 (Donut)</option>
-        <option value="galaxy">갤럭시 (Galaxy)</option>
-        <option value="bracket">브라켓 (Bracket)</option>
+
+    <div class="ctrl">
+      <span class="ctrl-label">레이아웃</span>
+      <select class="ctrl-select" id="layoutSelect">
+        <option value="tree">Tree</option>
+        <option value="radial">Radial</option>
+        <option value="donut">Donut</option>
+        <option value="galaxy">Galaxy</option>
+        <option value="bracket">Bracket</option>
       </select>
     </div>
-    <div class="toolbar-group">
-      <label>방향</label>
-      <select id="directionSelect">
-        <option value="vertical">수직 (Vertical)</option>
-        <option value="horizontal">수평 (Horizontal)</option>
+
+    <div class="ctrl">
+      <span class="ctrl-label">방향</span>
+      <select class="ctrl-select" id="directionSelect">
+        <option value="vertical">Vertical</option>
+        <option value="horizontal">Horizontal</option>
       </select>
     </div>
-    <div class="toolbar-group">
-      <label>표시</label>
-      <select id="displaySelect">
+
+    <div class="ctrl">
+      <span class="ctrl-label">표시</span>
+      <select class="ctrl-select" id="displaySelect">
         <option value="person">인명 중심</option>
         <option value="department">조직 중심</option>
       </select>
     </div>
-    <div class="toolbar-group">
-      <label>연결선</label>
-      <select id="connectorSelect">
-        <option value="curved">곡선 (Curved)</option>
-        <option value="straight">직선 (Straight)</option>
+
+    <div class="ctrl" style="border-right: none;">
+      <span class="ctrl-label">연결선</span>
+      <select class="ctrl-select" id="connectorSelect">
+        <option value="curved">Curved</option>
+        <option value="straight">Straight</option>
       </select>
     </div>
-    <div class="toolbar-group" style="margin-left: auto;">
-      <button class="secondary" id="sampleBtn">샘플 데이터</button>
-      <button id="exportBtn">PNG 내보내기</button>
+
+    <div class="ctrl-actions">
+      <button class="btn btn-ghost" id="sampleBtn">샘플 데이터</button>
+      <button class="btn btn-accent" id="exportBtn">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M6 1v7M3 5.5L6 8.5l3-3M1.5 10.5h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        PNG 내보내기
+      </button>
     </div>
   </div>
 
-  <div class="main">
+  <main class="workspace">
     <div id="chart"></div>
-  </div>
+  </main>
 
   <script src="orgchart.js"></script>
   <script>

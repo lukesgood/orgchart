@@ -12,7 +12,14 @@ class OrgChart {
     this.connectorStyle = options.connectorStyle || 'curved';
     this.displayMode = options.displayMode || 'person';
     this.onNodeClick = options.onNodeClick || null;
+    this.instanceId = Math.random().toString(36).slice(2, 8);
     this.themes = this.getThemes();
+    this._resizeTimer = null;
+    this._ro = new ResizeObserver(() => {
+      clearTimeout(this._resizeTimer);
+      this._resizeTimer = setTimeout(() => this.render(), 150);
+    });
+    this._ro.observe(this.container);
     this.render();
   }
 
@@ -92,6 +99,15 @@ class OrgChart {
     const root = this.data.find(n => !n.parentId);
     if (!root) return;
 
+    this._dataMap = new Map(this.data.map(n => [n.id, n]));
+    this._childrenMap = new Map();
+    this.data.forEach(n => {
+      if (n.parentId != null) {
+        if (!this._childrenMap.has(n.parentId)) this._childrenMap.set(n.parentId, []);
+        this._childrenMap.get(n.parentId).push(n);
+      }
+    });
+
     const tree = this.buildTree(root.id);
     let positions;
     
@@ -115,8 +131,8 @@ class OrgChart {
   }
 
   buildTree(nodeId) {
-    const node = this.data.find(n => n.id === nodeId);
-    const children = this.data.filter(n => n.parentId === nodeId).map(c => this.buildTree(c.id));
+    const node = this._dataMap.get(nodeId);
+    const children = (this._childrenMap.get(nodeId) || []).map(c => this.buildTree(c.id));
     return { ...node, children };
   }
 
@@ -139,14 +155,16 @@ class OrgChart {
       return positions;
     }
 
+    const directChildPos = [];
     node.children.forEach(child => {
       const childPos = this.layoutTree(child, level + 1, x);
       positions.push(...childPos);
+      directChildPos.push(childPos[childPos.length - 1]);
       x += this.getSubtreeWidth(child);
     });
 
-    const firstChild = positions.find(p => p.id === node.children[0].id);
-    const lastChild = positions.find(p => p.id === node.children[node.children.length - 1].id);
+    const firstChild = directChildPos[0];
+    const lastChild  = directChildPos[directChildPos.length - 1];
     
     const pos = this.direction === 'horizontal'
       ? { x: level * (this.nodeWidth + this.levelGap), y: (firstChild.y + lastChild.y) / 2 }
@@ -625,8 +643,14 @@ class OrgChart {
     const nh = this.nodeHeight * s;
 
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    const gradId = 'lineGradient-' + this.instanceId;
     const gradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
-    gradient.setAttribute('id', 'lineGradient');
+    gradient.setAttribute('id', gradId);
+    gradient.setAttribute('gradientUnits', 'userSpaceOnUse');
+    gradient.setAttribute('x1', '0');
+    gradient.setAttribute('y1', '0');
+    gradient.setAttribute('x2', String(this.container.offsetWidth));
+    gradient.setAttribute('y2', String(this.container.offsetHeight));
     gradient.innerHTML = `<stop offset="0%" stop-color="${t.gradient[0]}" stop-opacity="0.3"/>
       <stop offset="100%" stop-color="${t.gradient[1]}" stop-opacity="0.3"/>`;
     defs.appendChild(gradient);
@@ -638,12 +662,20 @@ class OrgChart {
       return;
     }
 
+    const posMap = new Map(positions.map(p => [p.id, p]));
+
+    // tree + straight: 버스 방식으로 줄기/수평선 중복 제거
+    if (this.layout === 'tree' && this.connectorStyle === 'straight') {
+      this.drawTreeBusConnectors(svg, positions, posMap, nw, nh, gradId);
+      return;
+    }
+
     // 중복 라인 방지를 위한 Set
     const drawnLines = new Set();
-    
+
     positions.forEach(node => {
       if (!node.parentId) return;
-      const parent = positions.find(p => p.id === node.parentId);
+      const parent = posMap.get(node.parentId);
       if (!parent) return;
       
       const lineKey = `${parent.id}-${node.id}`;
@@ -654,38 +686,38 @@ class OrgChart {
       let d;
 
       if (this.layout === 'radial' || this.layout === 'galaxy') {
-        const x1 = parent.x + nw / 2, y1 = parent.y + nw / 2;
-        const x2 = node.x + nw / 2, y2 = node.y + nw / 2;
+        const x1 = parent.x + nw / 2, y1 = parent.y + nh / 2;
+        const x2 = node.x + nw / 2, y2 = node.y + nh / 2;
         const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
         const cx = midX + (y2 - y1) * 0.15, cy = midY - (x2 - x1) * 0.15;
         d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
       } else if (this.layout === 'bracket') {
         const dir = node.bracketDir;
-        
+
         if (this.direction === 'vertical') {
           // 수직 브라켓: 좌우로 뻗어나감
-          const x1 = parent.x + nw / 2;
+          const x1 = dir < 0 ? parent.x : parent.x + nw;
           const y1 = parent.y + nh / 2;
           const x2 = node.x + nw / 2;
           const y2 = node.y + nh / 2;
-          
+
           // 부모에서 수평으로 나가서 자식으로 연결
-          const midX = dir < 0 
+          const midX = dir < 0
             ? Math.min(parent.x, node.x + nw) - this.levelGap * s / 2
             : Math.max(parent.x + nw, node.x) + this.levelGap * s / 2;
-          
+
           d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
         } else {
           // 수평 브라켓: 상하로 뻗어나감
           const x1 = parent.x + nw / 2;
-          const y1 = parent.y + nh / 2;
+          const y1 = dir < 0 ? parent.y : parent.y + nh;
           const x2 = node.x + nw / 2;
           const y2 = node.y + nh / 2;
-          
+
           const midY = dir < 0
             ? Math.min(parent.y, node.y + nh) - this.levelGap * s / 2
             : Math.max(parent.y + nh, node.y) + this.levelGap * s / 2;
-          
+
           d = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
         }
       } else if (this.direction === 'horizontal') {
@@ -706,11 +738,60 @@ class OrgChart {
 
       line.setAttribute('d', d);
       const isCircular = ['radial', 'galaxy'].includes(this.layout);
-      line.setAttribute('stroke', isCircular ? t.accent : 'url(#lineGradient)');
+      line.setAttribute('stroke', isCircular ? t.accent : `url(#${gradId})`);
       line.setAttribute('stroke-width', isCircular ? '1.5' : '2');
       line.setAttribute('fill', 'none');
       line.setAttribute('opacity', isCircular ? '0.3' : '1');
       svg.appendChild(line);
+    });
+  }
+
+  drawTreeBusConnectors(svg, positions, posMap, nw, nh, gradId) {
+    const mkLine = (x1, y1, x2, y2) => {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      el.setAttribute('x1', x1); el.setAttribute('y1', y1);
+      el.setAttribute('x2', x2); el.setAttribute('y2', y2);
+      el.setAttribute('stroke', `url(#${gradId})`);
+      el.setAttribute('stroke-width', '2');
+      svg.appendChild(el);
+    };
+
+    // 부모별로 자식 노드 그룹화
+    const groups = new Map();
+    positions.forEach(node => {
+      if (!node.parentId) return;
+      const parent = posMap.get(node.parentId);
+      if (!parent) return;
+      if (!groups.has(node.parentId)) groups.set(node.parentId, { parent, children: [] });
+      groups.get(node.parentId).children.push(node);
+    });
+
+    groups.forEach(({ parent, children }) => {
+      if (this.direction === 'vertical') {
+        const px   = parent.x + nw / 2;
+        const py   = parent.y + nh;
+        const midY = (py + children[0].y) / 2;
+
+        children.sort((a, b) => a.x - b.x);
+        const leftX  = children[0].x + nw / 2;
+        const rightX = children[children.length - 1].x + nw / 2;
+
+        mkLine(px, py, px, midY);                                          // 줄기
+        if (children.length > 1) mkLine(leftX, midY, rightX, midY);       // 수평 크로스바
+        children.forEach(c => mkLine(c.x + nw / 2, midY, c.x + nw / 2, c.y)); // 수직 드롭
+      } else {
+        const px   = parent.x + nw;
+        const py   = parent.y + nh / 2;
+        const midX = (px + children[0].x) / 2;
+
+        children.sort((a, b) => a.y - b.y);
+        const topY    = children[0].y + nh / 2;
+        const bottomY = children[children.length - 1].y + nh / 2;
+
+        mkLine(px, py, midX, py);                                             // 줄기
+        if (children.length > 1) mkLine(midX, topY, midX, bottomY);          // 수직 크로스바
+        children.forEach(c => mkLine(midX, c.y + nh / 2, c.x, c.y + nh / 2)); // 수평 드롭
+      }
     });
   }
 
@@ -944,6 +1025,12 @@ class OrgChart {
     link.download = filename;
     link.href = canvas.toDataURL('image/png');
     link.click();
+  }
+
+  destroy() {
+    if (this._ro) { this._ro.disconnect(); this._ro = null; }
+    clearTimeout(this._resizeTimer);
+    while (this.container.firstChild) this.container.removeChild(this.container.firstChild);
   }
 }
 
